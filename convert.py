@@ -45,12 +45,14 @@ class Pixel:
 class Pixels:
     def __init__(self, matrix, color):
         print("     Converting color code format to hex.... ")
-        self.color = [int(x * 255) for x in colors.hex2color(f"#{color}")]        
+        self.color = [int(x * 255) for x in colors.hex2color(f"#{color}")]   
+        print(self.color)     
         self.matrix = matrix
         print("     Finding the closest pixel to true white by euclidian distance.... ")
-        self.closest = self.closestToWhite()
-        
-
+        #self.closest, self.furthest = self.closestToWhite()
+        #self.biggestAverage = biggestAverage()
+    
+    
     def skyRGB(self): # Get sky color based on average values of RGB for pixels that have R < 65 and G < 125 //TODO: Fix this function
         x_axis = self.matrix.shape[0]
         y_axis = self.matrix.shape[1]
@@ -70,26 +72,35 @@ class Pixels:
     
     def closestToWhite(self): # Max verage o the RGB values
         closest = 0
+        furthest = 195076
         x_axis = self.matrix.shape[0]
         y_axis = self.matrix.shape[1]
         for x in range(x_axis):
             for y in range(y_axis):
                 pixel = Pixel(self.matrix[x,y])
                 euDisWhite = pixel.euclidianDistanceWhite()
+                euDisBlue = pixel.euclidianDistanceBlue()
                 if euDisWhite > closest:
                     closest = euDisWhite
-        return closest
-
+                if euDisWhite < euDisBlue and euDisWhite < furthest:
+                    furthest = euDisWhite
+        return closest, furthest
+    
     def removeShitWithCAG(self, CAGC): # Name in honor of Thomas; Remove sky elements from the picture by making their alpha value 0 while optimizing for CAG ( Cloud Alpha Gradient Coefficient )
         x_axis = self.matrix.shape[0]
         y_axis = self.matrix.shape[1]
         for x in range(x_axis):
             for y in range(y_axis):
-                pixel = Pixel(self.matrix[x, y])
-                if pixel.euclidianDistanceBlue() < pixel.euclidianDistanceWhite():
-                    self.matrix = [self.color[0], self.color[1], self.color[2], 0]
+                matrixxy = self.matrix[x, y]
+                pixel = Pixel(matrixxy)
+                distanceWhite = pixel.euclidianDistanceWhite()
+                if pixel.euclidianDistanceBlue() < distanceWhite:
+                    matrixxy = [self.color[0], self.color[1], self.color[2], 0]
                 else:
-                    self.matrix[x,y] = [self.color[0], self.color[1], self.color[2], math.ceil((pixel.averageRGB() / self.closest) * 255 * CAGC)]
+                    #a = int(math.ceil(math.ceil((distanceWhite) / self.closest) * math.ceil(255 - 255 * CAGC) + math.ceil(255 * CAGC)))
+                    matrixxy = [self.color[0], self.color[1], self.color[2], matrixxy[3]]
+                    print(matrixxy)
+                  
                     
     def removeShit(self): # Name in honor of Thomas; Remove sky elements from the picture by making their alpha value 0 without CAG ( Cloud Alpha Gradient )
         x_axis = self.matrix.shape[0]
@@ -103,22 +114,52 @@ class Pixels:
                     self.matrix[x,y] = [self.color[0], self.color[1], self.color[2], 255]
 
 
+def biggestAverage(matrix):
+    x_axis = matrix.shape[0]
+    y_axis = matrix.shape[1]
+    biggest = 0
+    for x in range(x_axis):
+        for y in range(y_axis):
+            pixel = Pixel(matrix[x, y])
+            avrg = pixel.averageRGB()
+            if avrg > biggest:
+                biggest = avrg
+    return biggest
+
+def CAGCFn(matrix, biggest, CAGC):
+    x_axis = matrix.shape[0]
+    y_axis = matrix.shape[1]
+    
+    for x in range(x_axis):
+        for y in range(y_axis):
+            matrixxy = matrix[x, y]
+            pixel = Pixel(matrixxy)
+            avrg = pixel.averageRGB()
+            matrixxy = [matrixxy[0], matrixxy[1], matrixxy[2], math.ceil(avrg / biggest) * math.ceil(255 - 255 * CAGC) + math.ceil(255 * CAGC)]
+            #print(avrg, biggest, math.ceil(avrg/biggest * math.ceil(255 - 255 * CAGC)), math.ceil(255 * CAGC), math.ceil(avrg/biggest * math.ceil(255 - 255 * CAGC)) + math.ceil(255 * CAGC))
+    return matrix
+
 def process_image(input, output, blurRadius, cloudAlphaGradientCoefficient, cloudColor):
     print("Opening image and applying blur... ") # Showing user status
-    image = Image.open(input).convert('RGBA').filter(ImageFilter.GaussianBlur(blurRadius)) # Open image, convert it to RGBA and add Gaussian blur
-    
+    image = Image.open(input).convert('RGBA') #.filter(ImageFilter.GaussianBlur(blurRadius)) # Open image, convert it to RGBA and add Gaussian blur
+    biggestAvrg = biggestAverage(np.array(image))
+    print(biggestAvrg)
+    if cloudAlphaGradientCoefficient == 0:
+        cloudAlphaGradientCoefficient = 100
+    image_matrix = CAGCFn(np.array(image), biggestAvrg, cloudAlphaGradientCoefficient / 100)
     print(f"Converting image to 3D pixel array... ")
-    image_matrix = Pixels(np.array(image), cloudColor) # Convert that image to pixel array
+    imageAfterCAGC = Image.fromarray(image_matrix, 'RGBA').filter(ImageFilter.GaussianBlur(blurRadius))
+    image_matrixx = Pixels(np.array(imageAfterCAGC), cloudColor) # Convert that image to pixel array
     
     if (cloudAlphaGradientCoefficient != 0): # If alpha gradient specified
         print(f"Removing shit and adding cloud alpha {cloudAlphaGradientCoefficient}%.... ")
-        image_matrix.removeShitWithCAG(cloudAlphaGradientCoefficient) # Run optimized remove sky pixels function with CAG
+        image_matrixx = image_matrixx.removeShitWithCAG(cloudAlphaGradientCoefficient) # Run optimized remove sky pixels function with CAG
     else:
         print("Started removing shit")
-        image_matrix.removeShit() # Run remove sky pixels function
+        image_matrixx.removeShit() # Run remove sky pixels function
     
     print("Converting changed 3D pixel array to a new image... ")
-    converted = Image.fromarray(image_matrix.matrix, 'RGBA') # Convert the proccessed instance of the image to image file type RGBA 
+    converted = Image.fromarray(image_matrixx, 'RGBA') # Convert the proccessed instance of the image to image file type RGBA 
     
     print("Saving processed image.... ")
     converted.save(output) # Save the converted image to the output file path
@@ -134,7 +175,7 @@ def main(): # Main function
 
     args = pars.parse_args() # Parse the CLI arguments
     
-    process_image(args.input_image, args.output_image, args.blur_radius , args.cloud_alpha_gradient, args.cloud_color) # Start image proccessing
+    process_image(args.input_image, args.output_image, args.blur_radius , args.cloud_alpha_gradient_coefficient, args.cloud_color) # Start image proccessing
 
 
 if __name__ == '__main__':
